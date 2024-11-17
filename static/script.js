@@ -7,3 +7,14 @@ $(window).ready(function(){
         
         $(".twist").css("width", "25%").css("width", "+=3px");
     });
+
+    async function setupCamera() {
+        const video = document.getElementById('video');
+        video.src = "{{ url_for('video_feed') }}"; // Flask video feed URL
+        video.width = 640;
+        video.height = 480;
+    
+        return new Promise((resolve) => {
+            video.onloadedmetadata = () => resolve(video);
+        });
+    }

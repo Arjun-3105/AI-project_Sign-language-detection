@@ -1,16 +1,21 @@
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, message="SymbolDatabase.GetPrototype() is deprecated")
+
 import pickle
 import cv2
 import mediapipe as mp
 import numpy as np
+import tkinter as tk
+import threading
 import time
-from flask import Flask, render_template, Response, request, jsonify
+import logging
+import os
 
 # Set up logging
-import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
 # Load the model
-model_dict = pickle.load(open(r"models\model4.p", 'rb'))
+model_dict = pickle.load(open(os.path.join('models', 'model4.p'), 'rb'))
 model = model_dict['model']
 
 # Initialize the video capture
@@ -35,17 +40,43 @@ labels_dict = {
     41: 'Sorry', 43: 'space'
 }
 
-# Flask app initialization
-app = Flask(__name__)
+# Create a tkinter window
+root = tk.Tk()
+root.title("ASL Prediction")
 
-# Function to update the text displayed on the website
+# Create a text field in tkinter
+text_field = tk.Text(root, height=2, width=40, font=("Helvetica", 16))
+text_field.pack()
+
+# Create a clear text button
+def clear_text():
+    text_field.delete('1.0', tk.END)  # Clear the text field
+    logging.info('Text cleared.')
+
+clear_button = tk.Button(root, text="Clear Text", command=clear_text)
+clear_button.pack()
+
+# Variable to store the previous prediction and time
+prev_prediction = None
+word_count = 0  # Track how many words have been written
+
+# Variables to track the detected character and delay counter
+last_detected_character = None
+fixed_character = ""
+delayCounter = 0
+start_time = time.time()
+
+# Function to update the tkinter text field by appending the new predicted character
 def update_text_field(text):
-    return text if text != "space" else " "
+    if text == 'space':
+        text_field.insert(tk.END, ' ')  # Append a space
+    else:
+        text_field.insert(tk.END, text + '')  # Append new character
+    logging.info(f'Word added: {text if text != "space" else "space (represented as space)"}')
 
-# Function to generate video frames for the Flask app
-def generate_frames():
-    global last_detected_character,fixed_character, delayCounter, start_time
-    last_detected_character = None
+# Function to run video capture and ASL prediction in a separate thread
+def run():
+    global last_detected_character, fixed_character, delayCounter, start_time
 
     while True:
         data_aux = []
@@ -54,6 +85,7 @@ def generate_frames():
 
         ret, frame = cap.read()
 
+      
         if not ret:
             break
 
@@ -106,7 +138,7 @@ def generate_frames():
                     if (current_time - start_time) >= 1.0:  # Class fixed after 1 second
                         fixed_character = predicted_character
                         if delayCounter == 0:  # Add character once after it stabilizes for 1 second
-                            fixed_character = update_text_field(fixed_character)
+                            update_text_field(fixed_character)
                             delayCounter = 1
                 else:
                     # Reset the timer when a new character is detected
@@ -114,44 +146,30 @@ def generate_frames():
                     last_detected_character = predicted_character
                     delayCounter = 0  # Reset delay counter for a new character
 
-        # Encode the frame as a JPEG image
-        ret, buffer = cv2.imencode('.jpg', frame)
-        frame = buffer.tobytes()
+        # Show the video feed with the prediction
+        cv2.imshow('frame', frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
-        # Yield the frame for streaming in the HTTP response
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
+    cap.release()
+    cv2.destroyAllWindows()
 
-# Flask route to serve the homepage
-@app.route('/')
-def index():
-    return render_template('index.html')
+# Function to exit the application and stop both Tkinter and OpenCV
+def exit_app():
+    global cap
+    logging.info('Exiting application...')
+    if cap.isOpened():
+        cap.release()  # Release the video capture
+    cv2.destroyAllWindows()  # Close OpenCV windows
+    root.quit()  # Stop the Tkinter main loop
+    root.destroy()  # Close the Tkinter window
 
-# Flask route to serve the camera page with ASL prediction
-@app.route('/camera')
-def camera():
-    return render_template('camera.html')
+# Create an "Exit" button
+exit_button = tk.Button(root, text="Exit", command=exit_app)
+exit_button.pack()
 
-# Flask route to stream the video feed
-@app.route('/video_feed')
-def video_feed():
-    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+# Start the video capture in a separate thread to keep tkinter responsive
+threading.Thread(target=run, daemon=True).start()
 
-# POST route to handle ASL predictions
-@app.route('/predict', methods=['POST'])
-def predict():
-    # Assuming you're sending an image or data in the POST request
-    # Here, we're just simulating an ASL prediction based on data you might send
-    if request.method == 'POST':
-        data = request.json  # You could also use `request.form` for form-data or `request.files` for image files
-        
-        # Sample processing (e.g., getting data from the request)
-        prediction = model.predict([np.asarray(data['landmarks'])])
-        predicted_character = labels_dict[int(prediction[0])]
-
-        # Return the prediction as a JSON response
-        return jsonify({'prediction': predicted_character})
-
-# Run the Flask app
-if __name__ == '__main__':
-    app.run(debug=True, threaded=True)
+# Start the tkinter main loop
+root.mainloop()
