@@ -9,13 +9,12 @@ import tkinter as tk
 import threading
 import time
 import logging
-import os
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
 # Load the model
-model_dict = pickle.load(open(os.path.join('models', 'model4.p'), 'rb'))
+model_dict = pickle.load(open(r'models\final_model.p', 'rb'))
 model = model_dict['model']
 
 # Initialize the video capture
@@ -28,17 +27,17 @@ mp_drawing_styles = mp.solutions.drawing_styles
 
 hands = mp_hands.Hands(static_image_mode=False, min_detection_confidence=0.7, max_num_hands=1)
 
-# Labels dictionary
+# Updated labels dictionary for only a-z, nothing, and space
 labels_dict = {
     0: 'a', 1: 'b', 2: 'c', 3: 'd', 4: 'e', 5: 'f',
     6: 'g', 7: 'h', 8: 'i', 9: 'j', 10: 'k', 11: 'l',
     12: 'm', 13: 'n', 14: 'o', 15: 'p', 16: 'q', 17: 'r',
     18: 's', 19: 't', 20: 'u', 21: 'v', 22: 'w', 23: 'x',
-    24: 'y', 25: 'z', 26: '0', 27: '1', 28: '2',
-    29: '3', 30: '4', 31: '5', 32: '6', 33: '7', 34: '8', 35: '9',
-    36: 'I love You', 37: 'yes', 38: 'No', 39: 'Hello', 40: 'Thanks',
-    41: 'Sorry', 43: 'space'
+    24: 'y', 25: 'z', 26: 'nothing', 27: 'space'
 }
+
+# Valid indices for filtering predictions
+valid_indices = list(labels_dict.keys())
 
 # Create a tkinter window
 root = tk.Tk()
@@ -85,7 +84,6 @@ def run():
 
         ret, frame = cap.read()
 
-      
         if not ret:
             break
 
@@ -124,27 +122,34 @@ def run():
 
                 # Make prediction using the model
                 prediction = model.predict([np.asarray(data_aux)])
-                predicted_character = labels_dict[int(prediction[0])]
+                predicted_index = int(prediction[0])
+
+                # Filter out invalid predictions
+                if predicted_index in valid_indices:
+                    predicted_character = labels_dict[predicted_index]
+                else:
+                    predicted_character = None  # Ignore invalid predictions
 
                 # Draw a rectangle and the predicted character on the frame
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 0), 4)
-                cv2.putText(frame, predicted_character, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1.3, (0, 0, 0), 3,
-                            cv2.LINE_AA)
+                if predicted_character:
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 0), 4)
+                    cv2.putText(frame, predicted_character, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1.3, (0, 0, 0), 3,
+                                cv2.LINE_AA)
 
-                current_time = time.time()
+                    current_time = time.time()
 
-                # Timer logic: Check if the predicted character is the same for more than 1 second
-                if predicted_character == last_detected_character:
-                    if (current_time - start_time) >= 1.0:  # Class fixed after 1 second
-                        fixed_character = predicted_character
-                        if delayCounter == 0:  # Add character once after it stabilizes for 1 second
-                            update_text_field(fixed_character)
-                            delayCounter = 1
-                else:
-                    # Reset the timer when a new character is detected
-                    start_time = current_time
-                    last_detected_character = predicted_character
-                    delayCounter = 0  # Reset delay counter for a new character
+                    # Timer logic: Check if the predicted character is the same for more than 1 second
+                    if predicted_character == last_detected_character:
+                        if (current_time - start_time) >= 1.0:  # Class fixed after 1 second
+                            fixed_character = predicted_character
+                            if delayCounter == 0:  # Add character once after it stabilizes for 1 second
+                                update_text_field(fixed_character)
+                                delayCounter = 1
+                    else:
+                        # Reset the timer when a new character is detected
+                        start_time = current_time
+                        last_detected_character = predicted_character
+                        delayCounter = 0  # Reset delay counter for a new character
 
         # Show the video feed with the prediction
         cv2.imshow('frame', frame)
